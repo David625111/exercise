@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
@@ -71,3 +72,49 @@ def season_emoji(month: int) -> str:
         12: "\U0001f936",  # 🤶
     }
     return emojis.get(month, "\U0001f3cb")  # 🏋 fallback
+
+
+MINUTES_THRESHOLD = 50
+
+
+def parse_minutes(text: str | None) -> int | None:
+    """Extract total exercise minutes from a caption string.
+
+    Supported patterns:
+      "30분"           → 30
+      "1시간"          → 60
+      "1시간 30분"     → 90
+      "50"             → 50  (bare number, treated as minutes)
+      "요가 20분 + 산책 15분" → 35  (multiple, summed)
+      "크로스핏 1시간" → 60
+
+    Returns None if no number is found.
+    """
+    if not text:
+        return None
+
+    total = 0
+    found = False
+
+    # Pattern: N시간 [M분]
+    for m in re.finditer(r'(\d+)\s*시간(?:\s*(\d+)\s*분)?', text):
+        hours = int(m.group(1))
+        mins = int(m.group(2)) if m.group(2) else 0
+        total += hours * 60 + mins
+        found = True
+
+    # Pattern: N분 (standalone, not already captured as part of 시간 M분)
+    # Remove the 시간...분 matches first to avoid double-counting
+    cleaned = re.sub(r'\d+\s*시간(?:\s*\d+\s*분)?', '', text)
+    for m in re.finditer(r'(\d+)\s*분', cleaned):
+        total += int(m.group(1))
+        found = True
+
+    # Fallback: bare number (only if nothing else matched)
+    if not found:
+        m = re.search(r'(\d+)', text)
+        if m:
+            total = int(m.group(1))
+            found = True
+
+    return total if found else None

@@ -36,6 +36,16 @@ CREATE TABLE IF NOT EXISTS verifications (
     UNIQUE(telegram_id, exercise_date)
 );
 
+CREATE TABLE IF NOT EXISTS exercise_logs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id   INTEGER NOT NULL REFERENCES members(telegram_id),
+    exercise_date TEXT    NOT NULL,  -- ISO date 'YYYY-MM-DD'
+    minutes       INTEGER NOT NULL,
+    photo_file_id TEXT,
+    note          TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS quarter_config (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
     quarter_start TEXT NOT NULL  -- ISO date 'YYYY-MM-DD'
@@ -220,6 +230,47 @@ def get_daily_verifications(exercise_date: date) -> list[dict[str, Any]]:
             "WHERE v.exercise_date = ? "
             "ORDER BY m.display_name",
             (exercise_date.isoformat(),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── exercise logs ───────────────────────────────────────────
+
+def add_exercise_log(
+    telegram_id: int,
+    exercise_date: date,
+    minutes: int,
+    photo_file_id: str | None = None,
+    note: str | None = None,
+) -> int:
+    """Insert an exercise log entry. Returns the new row id."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "INSERT INTO exercise_logs (telegram_id, exercise_date, minutes, photo_file_id, note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (telegram_id, exercise_date.isoformat(), minutes, photo_file_id, note),
+        )
+        return cur.lastrowid
+
+
+def get_daily_total_minutes(telegram_id: int, exercise_date: date) -> int:
+    """Sum of minutes logged for a specific user on a specific date."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(minutes), 0) AS total "
+            "FROM exercise_logs WHERE telegram_id = ? AND exercise_date = ?",
+            (telegram_id, exercise_date.isoformat()),
+        ).fetchone()
+        return row["total"]
+
+
+def get_daily_exercise_logs(telegram_id: int, exercise_date: date) -> list[dict[str, Any]]:
+    """All exercise log entries for a user on a date."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM exercise_logs "
+            "WHERE telegram_id = ? AND exercise_date = ? ORDER BY created_at",
+            (telegram_id, exercise_date.isoformat()),
         ).fetchall()
         return [dict(r) for r in rows]
 
