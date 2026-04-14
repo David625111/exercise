@@ -1,0 +1,15 @@
+[Unit]
+Description=Exercise Verification Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/exercise-bot
+EnvironmentFile=/home/ubuntu/exercise-bot/.env
+ExecStart=/home/ubuntu/exercise-bot/venv/bin/python -m bot.main
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
