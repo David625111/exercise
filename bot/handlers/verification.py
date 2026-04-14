@@ -19,20 +19,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     3. Check daily total — if >= 50 min and not yet verified, mark verified
     """
     message = update.effective_message
+    logger.info("handle_photo called: message=%s, photo=%s", message is not None, message.photo if message else None)
     if message is None or message.photo is None:
+        logger.info("Skipped: message or photo is None")
         return
 
     chat = update.effective_chat
+    logger.info("Chat id=%s, expected=%s", chat.id if chat else None, GROUP_CHAT_ID)
     if chat is None or chat.id != GROUP_CHAT_ID:
+        logger.info("Skipped: chat mismatch")
         return
 
     user = update.effective_user
     if user is None:
+        logger.info("Skipped: user is None")
         return
 
     telegram_id = user.id
     display_name = user.full_name
     username = user.username
+    logger.info("Processing photo from user=%s (%s), caption=%r", display_name, telegram_id, message.caption)
 
     # Ensure member is registered
     db.upsert_member(telegram_id, username, display_name)
@@ -41,11 +47,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     # Check quarter
     quarter_start = db.get_quarter_start()
+    logger.info("exercise_date=%s, quarter_start=%s", exercise_date, quarter_start)
     if exercise_date < quarter_start:
+        logger.info("Skipped: date before quarter start")
         return
 
     # Check goal
     goal = db.get_goal(telegram_id, quarter_start)
+    logger.info("Goal for user=%s: %s", telegram_id, goal)
     if goal is None:
         await message.reply_text(
             f"{display_name}님, 이번 분기 주간 목표가 설정되지 않았습니다.\n"
@@ -56,6 +65,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Parse minutes from caption
     caption = message.caption.strip() if message.caption else None
     minutes = parse_minutes(caption)
+    logger.info("Parsed minutes=%s from caption=%r", minutes, caption)
 
     if minutes is None:
         await message.reply_text(
@@ -71,54 +81,58 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     # Get best quality photo
     photo_file_id = message.photo[-1].file_id
 
-    # Record exercise log
-    db.add_exercise_log(
-        telegram_id=telegram_id,
-        exercise_date=exercise_date,
-        minutes=minutes,
-        photo_file_id=photo_file_id,
-        note=caption,
-    )
-
-    # Check daily total
-    daily_total = db.get_daily_total_minutes(telegram_id, exercise_date)
-    already_verified = db.count_verifications_range(
-        telegram_id, exercise_date, exercise_date
-    ) > 0
-
-    if daily_total >= MINUTES_THRESHOLD and not already_verified:
-        # Mark as verified
-        db.add_verification(
+    try:
+        # Record exercise log
+        db.add_exercise_log(
             telegram_id=telegram_id,
             exercise_date=exercise_date,
+            minutes=minutes,
             photo_file_id=photo_file_id,
-            is_manual=False,
-            note=f"누적 {daily_total}분",
+            note=caption,
         )
-        monday, sunday = week_bounds(exercise_date)
-        week_count = db.count_verifications_range(telegram_id, monday, sunday)
-        await message.reply_text(
-            f"{display_name}님 {minutes}분 기록! "
-            f"오늘 누적: {daily_total}/{MINUTES_THRESHOLD}분 \u2705 인증 완료!\n"
-            f"이번 주: {week_count}/{goal}회",
-        )
-        logger.info(
-            "Verification completed: user=%s date=%s total=%d min",
-            telegram_id, exercise_date, daily_total,
-        )
-    elif already_verified:
-        await message.reply_text(
-            f"{display_name}님 {minutes}분 추가 기록! "
-            f"오늘 누적: {daily_total}분 (이미 인증 완료)",
-        )
-    else:
-        remaining = MINUTES_THRESHOLD - daily_total
-        await message.reply_text(
-            f"{display_name}님 {minutes}분 기록! "
-            f"오늘 누적: {daily_total}/{MINUTES_THRESHOLD}분 "
-            f"(앞으로 {remaining}분 더!)",
-        )
-        logger.info(
-            "Exercise log added: user=%s date=%s +%d min (total=%d)",
-            telegram_id, exercise_date, minutes, daily_total,
-        )
+
+        # Check daily total
+        daily_total = db.get_daily_total_minutes(telegram_id, exercise_date)
+        already_verified = db.count_verifications_range(
+            telegram_id, exercise_date, exercise_date
+        ) > 0
+
+        if daily_total >= MINUTES_THRESHOLD and not already_verified:
+            # Mark as verified
+            db.add_verification(
+                telegram_id=telegram_id,
+                exercise_date=exercise_date,
+                photo_file_id=photo_file_id,
+                is_manual=False,
+                note=f"누적 {daily_total}분",
+            )
+            monday, sunday = week_bounds(exercise_date)
+            week_count = db.count_verifications_range(telegram_id, monday, sunday)
+            await message.reply_text(
+                f"{display_name}님 {minutes}분 기록! "
+                f"오늘 누적: {daily_total}/{MINUTES_THRESHOLD}분 \u2705 인증 완료!\n"
+                f"이번 주: {week_count}/{goal}회",
+            )
+            logger.info(
+                "Verification completed: user=%s date=%s total=%d min",
+                telegram_id, exercise_date, daily_total,
+            )
+        elif already_verified:
+            await message.reply_text(
+                f"{display_name}님 {minutes}분 추가 기록! "
+                f"오늘 누적: {daily_total}분 (이미 인증 완료)",
+            )
+        else:
+            remaining = MINUTES_THRESHOLD - daily_total
+            await message.reply_text(
+                f"{display_name}님 {minutes}분 기록! "
+                f"오늘 누적: {daily_total}/{MINUTES_THRESHOLD}분 "
+                f"(앞으로 {remaining}분 더!)",
+            )
+            logger.info(
+                "Exercise log added: user=%s date=%s +%d min (total=%d)",
+                telegram_id, exercise_date, minutes, daily_total,
+            )
+    except Exception:
+        logger.exception("Error processing exercise log: user=%s date=%s", telegram_id, exercise_date)
+        await message.reply_text("기록 처리 중 오류가 발생했습니다. 관리자에게 문의해주세요.")
