@@ -1,7 +1,8 @@
 import logging
 from datetime import time
 
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, TypeHandler, filters
 
 from bot.config import TELEGRAM_BOT_TOKEN
 from bot.database import init_db
@@ -79,6 +80,25 @@ def main() -> None:
     logger.info("Database initialized")
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # ── Debug: log ALL incoming updates ────────────────────────
+    async def log_update(update: Update, context):
+        msg = update.message or update.edited_message
+        if msg:
+            has_photo = msg.photo is not None and len(msg.photo) > 0
+            logger.info(
+                "UPDATE RECEIVED: chat_id=%s, from=%s, text=%r, caption=%r, has_photo=%s, message_id=%s",
+                msg.chat_id, msg.from_user.id if msg.from_user else None,
+                msg.text, msg.caption, has_photo, msg.message_id,
+            )
+
+    app.add_handler(TypeHandler(Update, log_update), group=-1)
+
+    # ── Error handler ──────────────────────────────────────────
+    async def error_handler(update, context):
+        logger.error("Unhandled exception: %s", context.error, exc_info=context.error)
+
+    app.add_error_handler(error_handler)
 
     # ── Command handlers ────────────────────────────────────────
     # Help
