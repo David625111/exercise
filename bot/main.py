@@ -104,6 +104,9 @@ def main() -> None:
 
     # ── Photo handler (exercise verification) ───────────────────
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(
+        filters.PHOTO & filters.UpdateType.EDITED_MESSAGE, handle_photo
+    ))
 
     # ── Scheduled jobs ──────────────────────────────────────────
     job_queue = app.job_queue
