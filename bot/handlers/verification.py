@@ -10,29 +10,38 @@ from bot.utils import MINUTES_THRESHOLD, parse_minutes, today_kst, week_bounds
 logger = logging.getLogger(__name__)
 
 
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Process a photo sent to the group as an exercise verification.
+def _extract_file_id(message) -> str | None:
+    """Extract image file_id from photo or document message."""
+    if message.photo:
+        return message.photo[-1].file_id
+    if (
+        message.document
+        and message.document.mime_type
+        and message.document.mime_type.startswith("image/")
+    ):
+        return message.document.file_id
+    return None
 
-    Flow:
-    1. Parse minutes from caption
-    2. Add to exercise_logs
-    3. Check daily total — if >= 50 min and not yet verified, mark verified
-    """
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Process a photo sent to the group as an exercise verification."""
     message = update.effective_message
-    logger.info("handle_photo called: message=%s, photo=%s", message is not None, message.photo if message else None)
-    if message is None or message.photo is None:
-        logger.info("Skipped: message or photo is None")
+    if message is None:
+        return
+
+    # Accept both photo messages and image documents
+    photo_file_id = _extract_file_id(message)
+    if photo_file_id is None:
+        logger.info("Skipped: no photo or image document found")
         return
 
     chat = update.effective_chat
-    logger.info("Chat id=%s, expected=%s", chat.id if chat else None, GROUP_CHAT_ID)
     if chat is None or chat.id != GROUP_CHAT_ID:
-        logger.info("Skipped: chat mismatch")
+        logger.info("Skipped: chat mismatch (got=%s, expected=%s)", chat.id if chat else None, GROUP_CHAT_ID)
         return
 
     user = update.effective_user
     if user is None:
-        logger.info("Skipped: user is None")
         return
 
     telegram_id = user.id
@@ -40,48 +49,41 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     username = user.username
     logger.info("Processing photo from user=%s (%s), caption=%r", display_name, telegram_id, message.caption)
 
-    # Ensure member is registered
-    db.upsert_member(telegram_id, username, display_name)
-
-    exercise_date = today_kst()
-
-    # Check quarter
-    quarter_start = db.get_quarter_start()
-    logger.info("exercise_date=%s, quarter_start=%s", exercise_date, quarter_start)
-    if exercise_date < quarter_start:
-        logger.info("Skipped: date before quarter start")
-        return
-
-    # Check goal
-    goal = db.get_goal(telegram_id, quarter_start)
-    logger.info("Goal for user=%s: %s", telegram_id, goal)
-    if goal is None:
-        await message.reply_text(
-            f"{display_name}님, 이번 분기 주간 목표가 설정되지 않았습니다.\n"
-            "/setgoal N 명령어로 목표를 먼저 설정해주세요! (예: /setgoal 3)",
-        )
-        return
-
-    # Parse minutes from caption
-    caption = message.caption.strip() if message.caption else None
-    minutes = parse_minutes(caption)
-    logger.info("Parsed minutes=%s from caption=%r", minutes, caption)
-
-    if minutes is None:
-        await message.reply_text(
-            "운동 시간을 적어주세요!\n"
-            "예: 30분, 1시간, 크로스핏 50분",
-        )
-        return
-
-    if minutes <= 0:
-        await message.reply_text("운동 시간은 1분 이상이어야 합니다.")
-        return
-
-    # Get best quality photo
-    photo_file_id = message.photo[-1].file_id
-
     try:
+        # Ensure member is registered
+        db.upsert_member(telegram_id, username, display_name)
+
+        exercise_date = today_kst()
+
+        # Check quarter
+        quarter_start = db.get_quarter_start()
+        if exercise_date < quarter_start:
+            return
+
+        # Check goal
+        goal = db.get_goal(telegram_id, quarter_start)
+        if goal is None:
+            await message.reply_text(
+                f"{display_name}님, 이번 분기 주간 목표가 설정되지 않았습니다.\n"
+                "/setgoal N 명령어로 목표를 먼저 설정해주세요! (예: /setgoal 3)",
+            )
+            return
+
+        # Parse minutes from caption
+        caption = message.caption.strip() if message.caption else None
+        minutes = parse_minutes(caption)
+
+        if minutes is None:
+            await message.reply_text(
+                "운동 시간을 적어주세요!\n"
+                "예: 30분, 1시간, 크로스핏 50분",
+            )
+            return
+
+        if minutes <= 0:
+            await message.reply_text("운동 시간은 1분 이상이어야 합니다.")
+            return
+
         # Record exercise log
         db.add_exercise_log(
             telegram_id=telegram_id,

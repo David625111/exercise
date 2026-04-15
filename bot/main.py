@@ -123,9 +123,11 @@ def main() -> None:
     app.add_handler(CommandHandler("register", register_command))
 
     # ── Photo handler (exercise verification) ───────────────────
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    # Handle photos sent as "photo" OR as "file/document" (image)
+    photo_or_image_doc = filters.PHOTO | filters.Document.ALL
+    app.add_handler(MessageHandler(photo_or_image_doc, handle_photo))
     app.add_handler(MessageHandler(
-        filters.PHOTO & filters.UpdateType.EDITED_MESSAGE, handle_photo
+        photo_or_image_doc & filters.UpdateType.EDITED_MESSAGE, handle_photo
     ))
 
     # ── Scheduled jobs ──────────────────────────────────────────
