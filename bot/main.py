@@ -81,16 +81,25 @@ def main() -> None:
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-    # ── Debug: log ALL incoming updates ────────────────────────
+    # ── Debug: reply with diagnostic info for media messages ───
     async def log_update(update: Update, context):
         msg = update.message or update.edited_message
-        if msg:
-            has_photo = msg.photo is not None and len(msg.photo) > 0
-            logger.info(
-                "UPDATE RECEIVED: chat_id=%s, from=%s, text=%r, caption=%r, has_photo=%s, message_id=%s",
-                msg.chat_id, msg.from_user.id if msg.from_user else None,
-                msg.text, msg.caption, has_photo, msg.message_id,
-            )
+        if msg and msg.chat_id == GROUP_CHAT_ID:
+            has_photo = bool(msg.photo)
+            has_doc = bool(msg.document)
+            mime = msg.document.mime_type if msg.document else None
+            has_video = bool(msg.video)
+            has_anim = bool(msg.animation)
+            has_sticker = bool(msg.sticker)
+
+            # Reply with debug info for any non-text message
+            if not msg.text:
+                await msg.reply_text(
+                    f"[DEBUG] photo={has_photo}, doc={has_doc}, "
+                    f"mime={mime}, video={has_video}, "
+                    f"anim={has_anim}, sticker={has_sticker}, "
+                    f"caption={msg.caption!r}"
+                )
 
     app.add_handler(TypeHandler(Update, log_update), group=-1)
 
