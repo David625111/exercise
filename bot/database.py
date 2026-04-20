@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS quarter_config (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
     quarter_start TEXT NOT NULL  -- ISO date 'YYYY-MM-DD'
 );
+
+CREATE TABLE IF NOT EXISTS score_adjustments (
+    telegram_id   INTEGER NOT NULL REFERENCES members(telegram_id),
+    quarter_start TEXT    NOT NULL,  -- ISO date 'YYYY-MM-DD'
+    adjustment    INTEGER NOT NULL DEFAULT 0,
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (telegram_id, quarter_start)
+);
 """
 
 
@@ -273,6 +281,33 @@ def get_daily_exercise_logs(telegram_id: int, exercise_date: date) -> list[dict[
             (telegram_id, exercise_date.isoformat()),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── score adjustments ───────────────────────────────────────
+
+def set_score_adjustment(
+    telegram_id: int, quarter_start: date, adjustment: int
+) -> None:
+    """Upsert a manual score adjustment for a member in a quarter."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO score_adjustments (telegram_id, quarter_start, adjustment) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(telegram_id, quarter_start) DO UPDATE SET "
+            "adjustment = excluded.adjustment, updated_at = datetime('now')",
+            (telegram_id, quarter_start.isoformat(), adjustment),
+        )
+
+
+def get_all_score_adjustments(quarter_start: date) -> dict[int, int]:
+    """Return {telegram_id: adjustment} for a quarter."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT telegram_id, adjustment FROM score_adjustments "
+            "WHERE quarter_start = ?",
+            (quarter_start.isoformat(),),
+        ).fetchall()
+        return {r["telegram_id"]: r["adjustment"] for r in rows}
 
 
 def get_all_verifications_range(start: date, end: date) -> list[dict[str, Any]]:

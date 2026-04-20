@@ -202,6 +202,71 @@ async def report_command(
     await message.reply_text(report)
 
 
+async def bulk_score_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """/bulkscore @user1 N1 @user2 N2 ... — set manual score adjustments."""
+    message = update.effective_message
+    chat = update.effective_chat
+    user = update.effective_user
+    if message is None or chat is None or user is None:
+        return
+    if chat.id != GROUP_CHAT_ID:
+        return
+
+    if not _is_admin(user.id):
+        await message.reply_text("관리자만 사용할 수 있는 명령어입니다.")
+        return
+
+    args = context.args or []
+    if not args or len(args) % 2 != 0:
+        await message.reply_text(
+            "사용법: /bulkscore @user1 N @user2 N ...\n"
+            "예: /bulkscore @robin 2 @kaido 2 @gemma 2\n"
+            "• N은 정수 (음수 가능). 현재 분기의 수동 조정값을 덮어씁니다.",
+        )
+        return
+
+    updates: list[tuple[dict, int]] = []
+    errors: list[str] = []
+    for i in range(0, len(args), 2):
+        username, val = args[i], args[i + 1]
+        if not username.startswith("@"):
+            errors.append(f"'{username}'는 @username 형식이 아닙니다.")
+            continue
+        try:
+            adjustment = int(val)
+        except ValueError:
+            errors.append(f"'{val}'는 정수가 아닙니다.")
+            continue
+        member = db.get_member_by_username(username)
+        if member is None:
+            errors.append(f"{username} 사용자를 찾을 수 없습니다.")
+            continue
+        updates.append((member, adjustment))
+
+    if errors:
+        await message.reply_text(
+            "아래 오류로 인해 아무 것도 적용되지 않았습니다:\n" + "\n".join(errors),
+        )
+        return
+
+    quarter_start = db.get_quarter_start()
+    lines = [f"분기({quarter_start}) 점수 조정이 적용되었습니다:"]
+    for member, adj in updates:
+        db.set_score_adjustment(member["telegram_id"], quarter_start, adj)
+        sign = "+" if adj >= 0 else ""
+        lines.append(f"  {member['display_name']}: {sign}{adj}")
+        logger.info(
+            "Score adjustment set: user=%s quarter=%s adj=%s by admin=%s",
+            member["telegram_id"],
+            quarter_start,
+            adj,
+            user.id,
+        )
+    await message.reply_text("\n".join(lines))
+
+
 async def register_command(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:

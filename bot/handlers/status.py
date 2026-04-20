@@ -28,6 +28,7 @@ def _compute_quarter_scores(
     """
     members = db.get_all_members()
     goals = db.get_all_goals(quarter_start)
+    adjustments = db.get_all_score_adjustments(quarter_start)
 
     qs_monday, _ = week_bounds(quarter_start)
 
@@ -35,9 +36,10 @@ def _compute_quarter_scores(
 
     for member in members:
         tid = member["telegram_id"]
+        adjustment = adjustments.get(tid, 0)
         target = goals.get(tid)
         if target is None:
-            results[tid] = (0, 0)
+            results[tid] = (adjustment, 0)
             continue
 
         # Collect completed weeks in chronological order
@@ -50,7 +52,7 @@ def _compute_quarter_scores(
             completed_weeks.append((ws, we))
             ws += timedelta(days=7)
 
-        total_score = 0
+        total_score = adjustment
         last_week_gained = 0
         for i, (ws, we) in enumerate(completed_weeks):
             count = db.count_verifications_range(tid, ws, we)

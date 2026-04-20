@@ -9,6 +9,7 @@ from bot.database import init_db
 from bot.config import GROUP_CHAT_ID
 from bot.handlers.admin import (
     add_log_command,
+    bulk_score_command,
     del_log_command,
     register_command,
     report_command,
@@ -59,6 +60,7 @@ HELP_TEXT = """\
 /dellog @user YYYY-MM-DD — 인증 삭제
 /setquarter YYYY-MM-DD — 분기 시작일 설정
 /report — 주간 리포트 즉시 생성
+/bulkscore @u1 N @u2 N ... — 분기 점수 일괄 조정 (가산점 덮어쓰기)
 
 ⏰ 자동 알림
 • 매일 밤 11시 — 당일 인증 현황 요약
@@ -92,13 +94,13 @@ def main() -> None:
             has_anim = bool(msg.animation)
             has_sticker = bool(msg.sticker)
 
-            # Reply with debug info for any non-text message
+            # Log debug info for any non-text message (logs only, not chat)
             if not msg.text:
-                await msg.reply_text(
-                    f"[DEBUG] photo={has_photo}, doc={has_doc}, "
-                    f"mime={mime}, video={has_video}, "
-                    f"anim={has_anim}, sticker={has_sticker}, "
-                    f"caption={msg.caption!r}"
+                logger.info(
+                    "[DEBUG] photo=%s, doc=%s, mime=%s, video=%s, "
+                    "anim=%s, sticker=%s, caption=%r",
+                    has_photo, has_doc, mime, has_video,
+                    has_anim, has_sticker, msg.caption,
                 )
 
     app.add_handler(TypeHandler(Update, log_update), group=-1)
@@ -127,6 +129,7 @@ def main() -> None:
     app.add_handler(CommandHandler("dellog", del_log_command))
     app.add_handler(CommandHandler("setquarter", set_quarter_command))
     app.add_handler(CommandHandler("report", report_command))
+    app.add_handler(CommandHandler("bulkscore", bulk_score_command))
 
     # Registration
     app.add_handler(CommandHandler("register", register_command))
